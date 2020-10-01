@@ -86,8 +86,6 @@ if not hasattr(om, "MObjectHandle"):
     log.warning("Node reuse might not work in this version of Maya "
                 "(OpenMaya.MObjectHandle not found)")
 
-TimeUnit = om.MTime.uiUnit()
-
 # DEPRECATED
 MTime = om.MTime
 MDistance = om.MDistance
@@ -267,6 +265,12 @@ Radians = _Unit(om.MAngle, om.MAngle.kRadians)
 AngularMinutes = _Unit(om.MAngle, om.MAngle.kAngMinutes)
 AngularSeconds = _Unit(om.MAngle, om.MAngle.kAngSeconds)
 
+
+def AngleUiUnit():
+    """Unlike other angle units, this can be modified by the user at run-time"""
+    return _Unit(om.MAngle, om.MAngle.uiUnit())
+
+
 # Distance units
 Millimeters = _Unit(om.MDistance, om.MDistance.kMillimeters)
 Centimeters = _Unit(om.MDistance, om.MDistance.kCentimeters)
@@ -277,13 +281,19 @@ Feet = _Unit(om.MDistance, om.MDistance.kFeet)
 Miles = _Unit(om.MDistance, om.MDistance.kMiles)
 Yards = _Unit(om.MDistance, om.MDistance.kYards)
 
+
+def DistanceUiUnit():
+    """Unlike other distance units, this can be modified by the user at run-time"""
+    return _Unit(om.MDistance, om.MDistance.uiUnit())
+
+
 # Time units
 Milliseconds = _Unit(om.MTime, om.MTime.kMilliseconds)
 Minutes = _Unit(om.MTime, om.MTime.kMinutes)
 Seconds = _Unit(om.MTime, om.MTime.kSeconds)
 
 
-def UiUnit():
+def TimeUiUnit():
     """Unlike other time units, this can be modified by the user at run-time"""
     return _Unit(om.MTime, om.MTime.uiUnit())
 
