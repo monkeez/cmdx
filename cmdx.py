@@ -105,10 +105,23 @@ GlobalDependencyNode = om.MFnDependencyNode()
 First = 0
 Last = -1
 
-# Animation curve interpolation, from MFnAnimCurve::TangentType
-Stepped = 5
-Linear = 2
-Smooth = 4
+# Animation constants
+if __maya_version__ >= 2016:
+    # Tangent types
+    TangentGlobal = oma.MFnAnimCurve.kTangentGlobal
+    TangentAuto = oma.MFnAnimCurve.kTangentAuto
+    TangentLinear = oma.MFnAnimCurve.kTangentLinear
+    TangentSmooth = oma.MFnAnimCurve.kTangentSmooth
+    TangentStep = oma.MFnAnimCurve.kTangentStep
+    TangentFixed = oma.MFnAnimCurve.kTangentFixed
+
+    # Cycle types
+    Constant = oma.MFnAnimCurve.kConstant
+    Linear = oma.MFnAnimCurve.kLinear
+    Cycle = oma.MFnAnimCurve.kCycle
+    CycleRelative = oma.MFnAnimCurve.kCycleRelative
+    Oscillate = oma.MFnAnimCurve.kOscillate
+
 
 history = dict()
 
@@ -1832,43 +1845,516 @@ class ObjectSet(Node):
 
 class AnimCurve(Node):
     if __maya_version__ >= 2016:
+
+        def __iter__(self):
+            """Iterate over the keys and yield values
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 10, 5: 0, 10: -3})
+                >>> list(node)
+                [10.0, 0.0, -3.0]
+
+            """
+
+            for index in range(self.numKeys):
+                yield self.value(index)
+
+        def __len__(self):
+            """Return number of keys"""
+            return self.numKeys
+
+        def __getitem__(self, index):
+            """Get key value via index
+
+            Falls back on `Node` get item when an int or slice isn't given.
+
+            Arguments:
+                index (int, slice): Index to get key value,
+                    optionally provide a slice object.
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 1.5, 5: -4.0, 10: 0.5})
+                >>> node[0]
+                1.5
+                >>> node[1:3]
+                (-4.0, 0.5)
+
+            """
+
+            if isinstance(index, slice):
+                return tuple(
+                    self.value(i) for i in range(*index.indices(self.numKeys))
+                )
+
+            if isinstance(index, int):
+                if index < 0:
+                    index = self.numKeys - abs(index)
+                return self.value(index)
+
+            return super(AnimCurve, self).__getitem__(index)
+
+        def __setitem__(self, index, value):
+            """Set key value via index
+
+            Falls back on `Node` set item when an int or slice isn't given.
+
+            Arguments:
+                index (int, slice): Index to set key value,
+                    optionally provide a slice object.
+                value (any): Value to set
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 1, 5: 2, 10: 3})
+                >>> node[0] = 8
+                >>> node[0]
+                8.0
+                >>> node[0:2] = (23, 0)
+                >>> list(node)
+                [23.0, 0.0, 3.0]
+
+            """
+
+            if isinstance(index, slice):
+                for i, v in zip(range(*index.indices(self.numKeys)), value):
+                    self.setValue(i, v)
+
+            elif isinstance(index, int):
+                if index < 0:
+                    index = self.numKeys - abs(index)
+                self.setValue(index, value)
+
+            else:
+                super(AnimCurve, self).__setitem__(index, value)
+
+        def __delitem__(self, index):
+            """Delete keys
+
+            Arguments:
+                index (int, slice): Index or slice of keys to delete
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 1, 5: 2, 10: 3})
+                >>> del(node[1])
+                >>> list(node)
+                [1.0, 3.0]
+
+            """
+
+            if isinstance(index, slice):
+                for i in reversed(range(*index.indices(self.numKeys))):
+                    self.remove(i)
+            elif isinstance(index, int):
+                self.remove(index)
+            else:
+                super(AnimCurve, self).__delitem__(index)
+
         def __init__(self, mobj, exists=True, modifier=None):
             super(AnimCurve, self).__init__(mobj, exists, modifier)
             self._fna = oma.MFnAnimCurve(mobj)
 
-        def key(self, time, value, interpolation=Linear):
-            time = om.MTime(time, om.MTime.uiUnit())
+        @property
+        def animCurveType(self):
+            """Return MFnAnimCurve type"""
+            return self._fna.animCurveType
+
+        @property
+        def isStatic(self):
+            """Is the animCurve static
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 3.0, 5: 3.0, 10: 3.0})
+                >>> node.isStatic
+                True
+                >>> node[0] = 1
+                >>> node.isStatic
+                False
+
+            """
+
+            return self._fna.isStatic
+
+        @property
+        def isTimeInput(self):
+            """Is the input time"""
+            return self._fna.isTimeInput
+
+        @property
+        def isUnitlessInput(self):
+            """Is the input unitless"""
+            return self._fna.isUnitlessInput
+
+        @property
+        def isLinearOutput(self):
+            """Is the output linear"""
+            return self.animCurveType in (
+                oma.MFnAnimCurve.kAnimCurveTL, oma.MFnAnimCurve.kAnimCurveUL
+            )
+
+        @property
+        def isAngularOutput(self):
+            """Is the output angular"""
+            return self.animCurveType in (
+                oma.MFnAnimCurve.kAnimCurveTA, oma.MFnAnimCurve.kAnimCurveUA
+            )
+
+        @property
+        def isTimeOutput(self):
+            """Is the output time"""
+            return self.animCurveType in (
+                oma.MFnAnimCurve.kAnimCurveTT, oma.MFnAnimCurve.kAnimCurveUT
+            )
+
+        @property
+        def isUnitlessOutput(self):
+            """Is the output unitless"""
+            return self.animCurveType in (
+                oma.MFnAnimCurve.kAnimCurveTU, oma.MFnAnimCurve.kAnimCurveUU
+            )
+
+        @property
+        def weighted(self):
+            """Does the animcurve use weighted tangents"""
+            return self._fna.isWeighted
+
+        @weighted.setter
+        def weighted(self, value):
+            self._fna.setIsWeighted(value)
+
+        @property
+        def numKeys(self):
+            """Return number of keys"""
+            return int(self._fna.numKeys)
+
+        @property
+        def preInfinity(self):
+            """Property for the animCurve pre infinity type"""
+            return self._fna.preInfinityType
+
+        @preInfinity.setter
+        def preInfinity(self, value):
+            self._fna.setPreInfinityType(value)
+
+        @property
+        def postInfinity(self):
+            """Property for the animCurve post infinity type"""
+            return self._fna.postInfinityType
+
+        @postInfinity.setter
+        def postInfinity(self, value):
+            self._fna.setPostInfinityType(value)
+
+        def evaluate(self, time):
+            """Evaluate the curve at the given time
+
+            Arguments:
+                time (float): Input at which to evaluate the animCurve
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 0, 5: 5}, tangent=TangentSmooth)
+                >>> node.postInfinity = Linear
+                >>> node.evaluate(10)
+                10.0
+
+            """
+
+            if self.isTimeInput:
+                time = TimeUiUnit()(time)
+
+            return self._fna.evaluate(time)
+
+        def find(self, time):
+            """Return the index of the key at the given time
+
+            Arguments:
+                time (float): Input of the key
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({10: 5.5})
+                >>> node.find(9)
+                >>> node.find(10)
+                0
+
+            """
+
+            if self.isTimeInput:
+                time = TimeUiUnit()(time)
             index = self._fna.find(time)
+            if index is not None:
+                return int(index)
 
-            if index:
-                self._fna.setValue(index, value)
+        def findClosest(self, time):
+            """Return the index of the key closest to the given time
+
+            Arguments:
+                time (float): Input to find closest from
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({10: 5.5})
+                >>> node.findClosest(10)
+                0
+                >>> node.findClosest(9)
+                0
+
+            """
+            if self.isTimeInput:
+                time = TimeUiUnit()(time)
+            return int(self._fna.findClosest(time))
+
+        def findPrevious(self, time):
+            """Return the index of the previous key from the given time
+
+            Arguments:
+                time (float): Input to find previous key from
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 0, 5: 0, 10: 0})
+                >>> node.findPrevious(3)
+                0
+                >>> node.findPrevious(10)
+                1
+                >>> node.findPrevious(0)
+
+            """
+
+            index = self.findClosest(time)
+            if self.time(index) >= time:
+                index -= 1
+            if index < 0:
+                return None
+            return index
+
+        def findNext(self, time):
+            """Return the index of the previous key from the given time
+
+            Arguments:
+                time (float): Input to find previous key from
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 0, 5: 0, 10: 0})
+                >>> node.findNext(3)
+                1
+                >>> node.findNext(5)
+                2
+                >>> node.findNext(11)
+
+            """
+
+            index = self.findClosest(time)
+            if self.time(index) <= time:
+                index += 1
+            if index >= self.numKeys:
+                return None
+            return index
+
+        def time(self, index):
+            """Return the time of the key at the given index
+
+            Arguments:
+                index (int): Index of the key
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 0, 5: 0, 10: 0})
+                >>> node.time(1)
+                5.0
+
+            """
+
+            return self._fna.input(index).value
+
+        def times(self):
+            """Yield all key times for the animCurve
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 0, 5: 0, 10: 0})
+                >>> for time in node.times():
+                ...   time
+                ...
+                0.0
+                5.0
+                10.0
+
+            """
+
+            for index in range(self.numKeys):
+                yield self.time(index)
+
+        # TODO: Support key reordering
+        def setTime(self, index, time):
+            """Set the time for the key at the given index
+
+            Arguments:
+                index (int): Index of the key
+                time (float): Time to move the key to
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 5, 5: 33, 10: -13})
+                >>> node.setTime(1, 3.0)
+                >>> node.evaluate(3.0)
+                33.0
+
+            """
+
+            if self.isTimeInput:
+                time = TimeUiUnit()(time)
+            self._fna.setInput(index, time)
+
+        def value(self, index):
+            """Return the value of the key at index
+
+            Arguments:
+                index (int): Index of the key
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 5, 1: 33, 4: -13})
+                >>> node.value(0)
+                5.0
+                >>> node.value(2)
+                -13.0
+
+            """
+
+            return self._fna.value(index)
+
+        def values(self):
+            """Yield all key values for the animCurve
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 5, 1: 33, 4: -13})
+                >>> for value in node.values():
+                ...   value
+                ...
+                5.0
+                33.0
+                -13.0
+
+            """
+
+            for index in range(self.numKeys):
+                yield self.value(index)
+
+        def setValue(self, index, value):
+            """Set value of key at index
+
+            Arguments:
+                index (int): Index of the key
+                value (float): Value of the key
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({10:30})
+                >>> node.setValue(0, 13)
+                >>> node[0]
+                13.0
+
+            """
+
+            self._fna.setValue(index, value)
+
+        def addKey(self, time, value, tangent=TangentGlobal):
+            """Add a key to the animCurve
+
+            Arguments:
+                time (float): Input of the key
+                value (float): Value of the key
+                tangent (int, optional): Key tangent type
+
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKey(10, -20, TangentLinear)
+                0
+                >>> node.addKey(20, 13, TangentLinear)
+                1
+
+            """
+            if isinstance(tangent, (list, tuple)):
+                tangentInType, tangentOutType = tangent
             else:
-                self._fna.addKey(time, value, interpolation, interpolation)
+                tangentInType = tangentOutType = tangent
+            if self.isTimeInput:
+                time = TimeUiUnit()(time)
 
-        def keys(self, times, values, interpolation=Linear):
-            times = map(lambda t: om.MTime(t, TimeUnit), times)
+            return int(self._fna.addKey(time, value, tangentInType, tangentOutType))
 
-            try:
-                self._fna.addKeys(times, values)
+        def addKeys(self, keys, tangent=TangentGlobal):
+            """Add keys to the animCurve
 
-            except RuntimeError:
-                # The error provided by Maya aren't very descriptive,
-                # help a brother out by look for common problems.
+            Arguments:
+                keys (dict): Key/value pairs of input and value
+                tangent (int, optional): Key tangent type
 
-                if not times:
-                    log.error("No times were provided: %s" % str(times))
+            Example:
+                >>> node = createNode("animCurveTL")
+                >>> node.addKeys({0: 1.5, 5: -3.0, 10: 0.5}, TangentStep)
+                >>> list(node)
+                [1.5, -3.0, 0.5]
+                >>> node.addKeys(((15, 20, 25), (-13, 3.5, 1.2)))
+                >>> list(node)
+                [1.5, -3.0, 0.5, -13.0, 3.5, 1.2]
 
-                if not values:
-                    log.error("No values were provided: %s" % str(values))
+            """
 
-                if len(values) != len(times):
-                    log.error(
-                        "Count mismatch; len(times)=%d, len(values)=%d" % (
-                            len(times), len(values)
-                        )
-                    )
+            if isinstance(keys, dict):
+                times, values = zip(*((t, v) for t, v in keys.items()))
+            else:
+                times, values = keys
 
-                raise
+            if self.isTimeInput:
+                if isinstance(tangent, (list, tuple)):
+                    tangentInType, tangentOutType = tangent
+                else:
+                    tangentInType = tangentOutType = tangent
+                times = [TimeUiUnit()(i) for i in times]
+                self._fna.addKeys(times, values, tangentInType, tangentOutType)
+
+            else:
+                for i, v in zip(times, values):
+                    self.addKey(i, v, tangent=tangent)
+
+
+        def remove(self, index):
+            """Delete key at given index
+
+            Arguments:
+                index (int): Index of the key to delete
+
+            """
+
+            self._fna.remove(index)
+
+        if ENABLE_PEP8:
+            add_key = addKey
+            add_keys = addKeys
+            anim_curve_type = animCurveType
+            find_closest = findClosest
+            find_next = findNext
+            find_previous = findPrevious
+            is_angular_output = isAngularOutput
+            is_linear_output = isLinearOutput
+            is_static = isStatic
+            is_time_input = isTimeInput
+            is_time_output = isTimeOutput
+            is_unitless_input = isUnitlessInput
+            is_unitless_output = isUnitlessOutput
+            num_keys = numKeys
+            post_infinity = postInfinity
+            pre_infinity = preInfinity
+            set_time = setTime
+            set_value = setValue
 
 
 class Plug(object):
